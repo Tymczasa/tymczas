@@ -1,0 +1,369 @@
+﻿<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <title>Labirynt – Kliknij, aby przesunąć klocek (z trybami)</title>
+  <style>
+    body {
+      margin: 20px;
+      font-family: sans-serif;
+      text-align: center;
+      background: #ddd; /* jasnoszary kolor tła */
+    }
+    #controls {
+      margin-bottom: 10px;
+    }
+    #mazeContainer {
+      position: relative;
+      width: 600px;
+      height: 600px;
+      margin: 20px auto;
+      border: 2px solid #000;
+    }
+    /* Dwa canvasy – labirynt oraz warstwa gracza */
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #mazeCanvas {
+      z-index: 1;
+      image-rendering: pixelated;
+    }
+    #playerCanvas {
+      z-index: 2;
+    }
+    #resetBtn {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Labirynt – Kliknij, aby przesunąć klocek</h1>
+  <div id="controls">
+    <label for="modeSelect">Tryb: </label>
+    <select id="modeSelect">
+      <option value="simple">Tryb prosty</option>
+      <option value="normal" selected>Tryb normalny</option>
+      <option value="advanced">Tryb zaawansowany</option>
+    </select>
+    <button id="resetBtn">Nowa Gra</button>
+  </div>
+  <div id="mazeContainer">
+    <canvas id="mazeCanvas" width="600" height="600"></canvas>
+    <canvas id="playerCanvas" width="600" height="600"></canvas>
+  </div>
+
+  <script>
+    // Globalne zmienne ustawień labiryntu – będą modyfikowane na podstawie trybu:
+    let gridCols, gridRows, cellSize, wallMargin;
+    const canvasSize = 600;
+    
+    // Pobieramy kontrolki oraz canvasy
+    const modeSelect = document.getElementById("modeSelect");
+    const resetBtn = document.getElementById("resetBtn");
+    const mazeCanvas = document.getElementById("mazeCanvas");
+    const ctxMaze = mazeCanvas.getContext("2d");
+    const playerCanvas = document.getElementById("playerCanvas");
+    const ctxPlayer = playerCanvas.getContext("2d");
+
+    // Zmienne dla generacji labiryntu
+    let grid = [];
+    let current;
+    let stack = [];
+
+    // Zmienne gracza
+    let player = { x: 0, y: 0, targetX: null, targetY: null, moving: false, speed: 200 };
+    let playerTrail = [];
+    let gameActive = true;
+    let lastPlayerTime = null;
+
+    // Flaga do efektu błysku (flash) ścian
+    let flashActive = false;
+
+    // Klasa komórki labiryntu
+class Cell {
+  constructor(i, j) {
+    this.i = i;
+    this.j = j;
+    // Ściany: [top, right, bottom, left]
+    this.walls = [true, true, true, true];
+    this.visited = false;
+  }
+  draw() {
+    let x = this.i * cellSize;
+    let y = this.j * cellSize;
+    // Ustawiamy kolor – jeśli aktywny jest efekt flash, ściany rysujemy na czerwono
+    ctxMaze.fillStyle = flashActive ? "red" : "black";
+    // Rysujemy górną ścianę
+    if (this.walls[0]) {
+      ctxMaze.fillRect(x, y, cellSize, 4);
+    }
+    // Rysujemy prawą ścianę
+    if (this.walls[1]) {
+      ctxMaze.fillRect(x + cellSize - 4, y, 4, cellSize);
+    }
+    // Rysujemy dolną ścianę
+    if (this.walls[2]) {
+      ctxMaze.fillRect(x, y + cellSize - 4, cellSize, 4);
+    }
+    // Rysujemy lewą ścianę
+    if (this.walls[3]) {
+      ctxMaze.fillRect(x, y, 4, cellSize);
+    }
+  }
+  index(i, j) {
+    if (i < 0 || j < 0 || i >= gridCols || j >= gridRows) return -1;
+    return i + j * gridCols;
+  }
+  checkNeighbors() {
+    let neighbors = [];
+    let top = grid[this.index(this.i, this.j - 1)];
+    let right = grid[this.index(this.i + 1, this.j)];
+    let bottom = grid[this.index(this.i, this.j + 1)];
+    let left = grid[this.index(this.i - 1, this.j)];
+    if (top && !top.visited) neighbors.push(top);
+    if (right && !right.visited) neighbors.push(right);
+    if (bottom && !bottom.visited) neighbors.push(bottom);
+    if (left && !left.visited) neighbors.push(left);
+    if (neighbors.length > 0) {
+      let r = Math.floor(Math.random() * neighbors.length);
+      return neighbors[r];
+    } else {
+      return undefined;
+    }
+  }
+}
+    
+
+    function removeWalls(a, b) {
+      let x = a.i - b.i;
+      if (x === 1) {
+        a.walls[3] = false;
+        b.walls[1] = false;
+      } else if (x === -1) {
+        a.walls[1] = false;
+        b.walls[3] = false;
+      }
+      let y = a.j - b.j;
+      if (y === 1) {
+        a.walls[0] = false;
+        b.walls[2] = false;
+      } else if (y === -1) {
+        a.walls[2] = false;
+        b.walls[0] = false;
+      }
+    }
+
+    function drawMaze() {
+      // Czyścimy tło i ustawiamy parametry rysowania, które zapewniają "szczelne" ścianki
+      ctxMaze.fillStyle = "white";
+      ctxMaze.fillRect(0, 0, mazeCanvas.width, mazeCanvas.height);
+      ctxMaze.lineCap = "round";   // zaokrąglone zakończenia linii
+      ctxMaze.lineJoin = "round";  // zaokrąglone łączenia linii
+      
+      for (let i = 0; i < grid.length; i++) {
+        grid[i].draw();
+      }
+      // Start: lewy górny róg (zielony)
+      ctxMaze.fillStyle = "#00FF00";
+      ctxMaze.fillRect(2, 2, cellSize - 4, cellSize - 4);
+      // Exit: prawy dolny róg (czerwony)
+      ctxMaze.fillStyle = "#FF0000";
+      let exitX = (gridCols - 1) * cellSize + 2;
+      let exitY = (gridRows - 1) * cellSize + 2;
+      ctxMaze.fillRect(exitX, exitY, cellSize - 4, cellSize - 4);
+    }
+
+    function generateMaze() {
+      current.visited = true;
+      let next = current.checkNeighbors();
+      if (next) {
+        next.visited = true;
+        stack.push(current);
+        removeWalls(current, next);
+        current = next;
+      } else if (stack.length > 0) {
+        current = stack.pop();
+      }
+      drawMaze();
+      if (stack.length > 0 || current.checkNeighbors()) {
+        requestAnimationFrame(generateMaze);
+      } else {
+        drawMaze();
+        initPlayer();
+        startPlayerAnimation();
+      }
+    }
+
+    function setupMaze() {
+      grid = [];
+      stack = [];
+      for (let j = 0; j < gridRows; j++) {
+        for (let i = 0; i < gridCols; i++) {
+          grid.push(new Cell(i, j));
+        }
+      }
+      current = grid[0];
+    }
+
+    // Funkcje gracza
+    function drawPlayer() {
+      ctxPlayer.clearRect(0, 0, playerCanvas.width, playerCanvas.height);
+      if (playerTrail.length > 0) {
+        ctxPlayer.strokeStyle = "rgba(0, 0, 255, 0.6)";
+        ctxPlayer.lineWidth = 3;
+        ctxPlayer.beginPath();
+        ctxPlayer.moveTo(playerTrail[0].x, playerTrail[0].y);
+        for (let i = 1; i < playerTrail.length; i++) {
+          ctxPlayer.lineTo(playerTrail[i].x, playerTrail[i].y);
+        }
+        ctxPlayer.stroke();
+      }
+      ctxPlayer.fillStyle = "blue";
+      const blockSize = 10;
+      ctxPlayer.fillRect(player.x - blockSize/2, player.y - blockSize/2, blockSize, blockSize);
+    }
+
+    // Funkcja sprawdzająca, czy dany piksel jest "dozwolony"
+    function isAllowed(x, y) {
+      let pixel = ctxMaze.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+      let r = pixel[0], g = pixel[1], b = pixel[2];
+      if ((r === 255 && g === 255 && b === 255) ||  // biały
+          (r === 0 && g === 255 && b === 0) ||        // zielony (start)
+          (r === 255 && g === 0 && b === 0)) {          // czerwony (meta)
+        return true;
+      }
+      return false;
+    }
+
+    function checkWin() {
+      let exitX = (gridCols - 1) * cellSize + 2;
+      let exitY = (gridRows - 1) * cellSize + 2;
+      let exitW = cellSize - 4;
+      let exitH = cellSize - 4;
+      if (player.x >= exitX && player.x <= exitX + exitW &&
+          player.y >= exitY && player.y <= exitY + exitH) {
+        return true;
+      }
+      return false;
+    }
+
+    // Funkcja wywołująca efekt "flash" – na krótko ścianki będą rysowane na czerwono
+    function flashWalls() {
+      flashActive = true;
+      drawMaze();
+      // Czas trwania efektu (np. 200ms)
+      setTimeout(() => {
+        flashActive = false;
+        drawMaze();
+      }, 200);
+    }
+
+    function updatePlayer(timestamp) {
+      if (!lastPlayerTime) lastPlayerTime = timestamp;
+      let dt = (timestamp - lastPlayerTime) / 1000;
+      lastPlayerTime = timestamp;
+      if (player.moving && gameActive) {
+        let dx = player.targetX - player.x;
+        let dy = player.targetY - player.y;
+        let dist = Math.hypot(dx, dy);
+        let step = player.speed * dt;
+        if (step >= dist) {
+          player.x = player.targetX;
+          player.y = player.targetY;
+          player.moving = false;
+        } else {
+          player.x += (dx / dist) * step;
+          player.y += (dy / dist) * step;
+        }
+        if (playerTrail.length === 0 ||
+            Math.hypot(player.x - playerTrail[playerTrail.length - 1].x,
+                       player.y - playerTrail[playerTrail.length - 1].y) > 2) {
+          playerTrail.push({ x: player.x, y: player.y });
+        }
+        // Sprawdzamy kolizję – jeśli gracz wszedł w obszar niedozwolony (ściana)
+        if (!isAllowed(player.x, player.y)) {
+          // Zderzenie z ścianką – zatrzymujemy ruch i przywracamy ostatnią poprawną pozycję
+          player.moving = false;
+          if (playerTrail.length > 0) {
+            const lastValid = playerTrail[playerTrail.length - 1];
+            player.x = lastValid.x;
+            player.y = lastValid.y;
+          }
+          // Wywołujemy efekt błysku ścianek
+          flashWalls();
+          drawPlayer();
+        }
+        if (checkWin()) {
+          gameActive = false;
+          alert("Gratulacje! Udało Ci się przejść labirynt!");
+          return;
+        }
+      }
+      drawPlayer();
+      if (gameActive) {
+        requestAnimationFrame(updatePlayer);
+      }
+    }
+
+    function handleClick(e) {
+      if (!gameActive || player.moving) return;
+      let rect = playerCanvas.getBoundingClientRect();
+      let clickX = e.clientX - rect.left;
+      let clickY = e.clientY - rect.top;
+      player.targetX = clickX;
+      player.targetY = clickY;
+      player.moving = true;
+    }
+
+    function initPlayer() {
+      player.x = cellSize / 2;
+      player.y = cellSize / 2;
+      player.targetX = null;
+      player.targetY = null;
+      player.moving = false;
+      playerTrail = [{ x: player.x, y: player.y }];
+      gameActive = true;
+      lastPlayerTime = null;
+      ctxPlayer.clearRect(0, 0, playerCanvas.width, playerCanvas.height);
+      playerCanvas.addEventListener("click", handleClick);
+    }
+
+    function startPlayerAnimation() {
+      lastPlayerTime = null;
+      requestAnimationFrame(updatePlayer);
+    }
+
+    // Reset gry: ustalamy parametry na podstawie wybranego trybu i generujemy nowy labirynt
+    function resetGame() {
+      playerCanvas.removeEventListener("click", handleClick);
+      ctxMaze.clearRect(0, 0, mazeCanvas.width, mazeCanvas.height);
+      ctxPlayer.clearRect(0, 0, playerCanvas.width, playerCanvas.height);
+      gameActive = true;
+      // Ustawienia trybu:
+      let mode = modeSelect.value;
+      if (mode === "simple") {
+        gridCols = gridRows = 8;
+        wallMargin = 6;
+      } else if (mode === "normal") {
+        gridCols = gridRows = 15;
+        wallMargin = 4;
+      } else if (mode === "advanced") {
+        gridCols = gridRows = 25;
+        wallMargin = 2;
+      }
+      cellSize = canvasSize / gridCols;
+      setupMaze();
+      generateMaze();
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+
+    // Startujemy grę przy załadowaniu
+    resetGame();
+  </script>
+</body>
+</html>

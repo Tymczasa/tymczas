@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <title>Strona G³ówna</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(to bottom, #f0f0f0, #707070);
+      font-family: Arial, sans-serif;
+    }
+    .container {
+      width: 100%;
+      text-align: center;
+      padding-top: 30px;
+    }
+    .game-link {
+      display: inline-block;
+      vertical-align: top; /* Wyrównanie do góry */
+      margin: 20px;
+      width: 200px;
+      height: 200px;
+      background-color: #fff;
+      border: 2px solid #ccc;
+      border-radius: 10px;
+      overflow: hidden;
+      transition: border-color 0.3s;
+    }
+    .game-link:hover {
+      border-color: #000;
+    }
+    .game-link img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="Labirynt.html" class="game-link">
+      <img src="Labirynt.jpg" alt="Miniatura gry 1">
+    </a>
+    <a href="Tetris.html" class="game-link">
+      <img src="Tetris.jpg" alt="Miniatura gry 2">
+    </a>
+    <a href="KoliKrzyz3.html" class="game-link">
+      <img src="KolkoKrzyzyk.jpg" alt="Miniatura gry 3">
+    </a>
+  </div>
+</body>
+</html>

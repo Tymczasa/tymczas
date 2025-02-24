@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Grywalny Tetris w HTML i JavaScript (Spowolniony)</title>
+    <style>
+        body {
+            margin: 20px;
+            font-family: sans-serif;
+            text-align: center;
+            background-color: #f0f0f0;
+        }
+
+        #gameContainer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #scoreInfo {
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }
+
+        #tetrisCanvas {
+            border: 2px solid #333;
+            background-color: #222; /* Ciemniejsze t³o planszy Tetris dla lepszego kontrastu */
+        }
+
+        #controls {
+            margin-top: 20px;
+            /* Mo¿esz tutaj dodaæ przyciski lub instrukcje sterowania */
+        }
+        .game-over-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5); /* Pó³przezroczyste czarne t³o */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10; /* Nad canvasem */
+            color: white;
+            font-size: 2em;
+            display: none; /* Domyœlnie ukryty */
+        }
+
+        .game-over-overlay.show {
+            display: flex; /* Pokazujemy overlay po przegranej */
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <h1>Tetris - Grywalny! (HTML i JavaScript) - SP Spowolniony!</h1>
+        <div id="scoreInfo">Wynik: <span id="scoreValue">0</span>  Linie: <span id="linesValue">0</span></div>
+        <div style="position: relative;">  <canvas id="tetrisCanvas" width="300" height="600"></canvas>
+            <div id="gameOverOverlay" class="game-over-overlay">Koniec Gry! <br> Naciœnij 'R' aby zagraæ ponownie</div>
+        </div>
+        <div id="controls">
+            <p>Sterowanie: <strong>Strza³ki (lewo/prawo/dó³), Spacja (obrót), R (reset)</strong></p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('tetrisCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreValueElement = document.getElementById('scoreValue');
+        const linesValueElement = document.getElementById('linesValue');
+        const gameOverOverlay = document.getElementById('gameOverOverlay');
+
+
+        const blockUnit = 30; // Rozmiar pojedynczego klocka (kwadratu)
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+        const gridCols = canvasWidth / blockUnit; // Szerokoœæ planszy w blokach
+        const gridRows = canvasHeight / blockUnit; // Wysokoœæ planszy w blokach
+
+        // Kolory dla ró¿nych typów klocków Tetris (klasyczne kolory Tetromino)
+        const colors = [
+            null,         // 0: Puste pole
+            'cyan',     // 1: I
+            'blue',     // 2: J
+            'orange',   // 3: L
+            'yellow',   // 4: O
+            'lime',     // 5: S
+            'purple',   // 6: T
+            'red'       // 7: Z
+        ];
+
+        // Definicje kszta³tów Tetromino (7 standardowych kszta³tów Tetris)
+        const shapes = [
+            [], // 0: Puste (nieu¿ywane)
+            [   // 1: I-Tetromino
+                [0, 0, 0, 0],
+                [1, 1, 1, 1],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0]
+            ],
+            [   // 2: J-Tetromino
+                [0, 0, 0],
+                [2, 2, 2],
+                [0, 0, 2]
+            ],
+            [   // 3: L-Tetromino
+                [0, 0, 0],
+                [3, 3, 3],
+                [3, 0, 0]
+            ],
+            [   // 4: O-Tetromino
+                [4, 4],
+                [4, 4]
+            ],
+            [   // 5: S-Tetromino
+                [0, 5, 5],
+                [5, 5, 0],
+                [0, 0, 0]
+            ],
+            [   // 6: T-Tetromino
+                [0, 0, 0],
+                [6, 6, 6],
+                [0, 6, 0]
+            ],
+            [   // 7: Z-Tetromino
+                [7, 7, 0],
+                [0, 7, 7],
+                [0, 0, 0]
+            ]
+        ];
+
+
+        let grid = createEmptyGrid(); // Plansza gry (siatka)
+        let currentPiece = null;       // Aktualnie spadaj¹cy klocek
+        let nextPiece = null;          // Nastêpny klocek
+        let score = 0;                 // Wynik
+        let linesCleared = 0;          // Liczba usuniêtych linii
+        let gameOver = false;          // Czy gra skoñczona
+        let framesPerMoveDown = 30; // Liczba klatek na ruch klocka w dó³ (wiêksza wartoœæ = wolniej) - DODANO SPOLNIENIE
+        let frameCount = 0;         // Licznik klatek - DODANO SPOLNIENIE
+
+        // Funkcja tworz¹ca pust¹ planszê gry (wype³nion¹ zerami)
+        function createEmptyGrid() {
+            return Array.from({ length: gridRows }, () => Array(gridCols).fill(0));
+        }
+
+        // Funkcja generuj¹ca losowy klocek Tetris
+        function getRandomPiece() {
+            const pieceIndex = Math.floor(Math.random() * (shapes.length - 1)) + 1; // Losujemy indeks kszta³tu (od 1 do 7)
+            const pieceShape = shapes[pieceIndex];
+            const pieceColor = colors[pieceIndex];
+            return {
+                shape: pieceShape,
+                color: pieceColor,
+                x: gridCols / 2 - Math.ceil(pieceShape[0].length / 2), // Pozycja startowa X (na œrodku)
+                y: 0 // Pozycja startowa Y (na górze)
+            };
+        }
+
+        // Funkcja tworz¹ca nowy klocek i ustawiaj¹ca "nastêpny klocek"
+        function createPiece() {
+            currentPiece = nextPiece || getRandomPiece();
+            nextPiece = getRandomPiece(); // Generujemy nastêpny klocek na przysz³oœæ
+             if (!isValidMove(currentPiece, 0, 0)) { // Sprawdzamy czy jest miejsce na nowy klocek na górze
+                gameOver = true;
+                gameOverOverlay.classList.add('show'); // Pokazujemy ekran "Koniec Gry"
+                return false; // Gra siê skoñczy³a
+            }
+            return true; // Gra trwa dalej
+        }
+
+
+        // Funkcja rysuj¹ca pojedynczy blok (kwadrat)
+        function drawBlock(x, y, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x * blockUnit, y * blockUnit, blockUnit, blockUnit);
+            ctx.strokeStyle = '#555'; // Ciemniejszy obrys bloków
+            ctx.strokeRect(x * blockUnit, y * blockUnit, blockUnit, blockUnit); // Dodajemy obrys
+        }
+
+        // Funkcja rysuj¹ca klocek Tetris
+        function drawPiece() {
+            if (!currentPiece) return;
+            currentPiece.shape.forEach((row, yIndex) => {
+                row.forEach((blockValue, xIndex) => {
+                    if (blockValue) {
+                        drawBlock(currentPiece.x + xIndex, currentPiece.y + yIndex, currentPiece.color);
+                    }
+                });
+            });
+        }
+
+        // Funkcja rysuj¹ca ca³¹ planszê gry
+        function drawGrid() {
+            grid.forEach((row, yIndex) => {
+                row.forEach((blockValue, xIndex) => {
+                    if (blockValue) {
+                        drawBlock(xIndex, yIndex, colors[blockValue]); // U¿ywamy koloru z planszy
+                    } else {
+                         ctx.fillStyle = '#222'; // Kolor pustego pola
+                        ctx.fillRect(xIndex * blockUnit, yIndex * blockUnit, blockUnit, blockUnit);
+                         ctx.strokeStyle = '#333'; // Ciemniejszy obrys pustych pól, delikatny grid
+                        ctx.strokeRect(xIndex * blockUnit, yIndex * blockUnit, blockUnit, blockUnit);
+                    }
+                });
+            });
+        }
+
+
+        // Funkcja czyszcz¹ca canvas (planszê)
+        function clearCanvas() {
+            ctx.fillStyle = '#222'; // Kolor t³a planszy
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        }
+
+        // Funkcja rysuj¹ca ca³¹ scenê gry (plansza + klocek)
+        function drawGame() {
+            clearCanvas();
+            drawGrid();
+            drawPiece();
+        }
+
+        // Funkcja sprawdzaj¹ca czy ruch klocka jest prawid³owy (nie wychodzi poza planszê, nie koliduje z innymi klockami)
+        function isValidMove(piece, moveX, moveY, rotatedPiece = null) {
+            const testShape = rotatedPiece || piece.shape; // U¿ywamy obróconego kszta³tu jeœli jest, inaczej aktualny
+            for (let yIndex = 0; yIndex < testShape.length; yIndex++) {
+                for (let xIndex = 0; xIndex < testShape[yIndex].length; xIndex++) {
+                    if (testShape[yIndex][xIndex]) {
+                        let newX = piece.x + xIndex + moveX;
+                        let newY = piece.y + yIndex + moveY;
+
+                        if (newX < 0 || newX >= gridCols || newY >= gridRows || grid[newY]?.[newX]) { // Sprawdzamy granice planszy i kolizje z plansz¹ (grid[newY]?.[newX] - bezpieczny dostêp do potencjalnie nieistniej¹cego rzêdu)
+                            return false; // Ruch nieprawid³owy
+                        }
+                    }
+                }
+            }
+            return true; // Ruch prawid³owy
+        }
+
+
+        // Funkcja przesuwaj¹ca klocek w dó³ o jeden rz¹d
+        function movePieceDown() {
+            if (!gameOver) {
+                if (isValidMove(currentPiece, 0, 1)) {
+                    currentPiece.y++;
+                } else {
+                    freezePiece(); // Klocek dotar³ na dó³ lub na inne klocki - "zamra¿amy" go na planszy
+                    clearLines();    // Sprawdzamy i usuwamy pe³ne linie
+                    if (!createPiece()) { // Tworzymy nowy klocek. Jeœli createPiece() zwróci false, to game over
+                        return; // Koniec gry - nie generujemy wiêcej klocków, zatrzymujemy pêtlê gry
+                    }
+                }
+            }
+        }
+
+        // Funkcja przesuwaj¹ca klocek w lewo
+        function movePieceLeft() {
+            if (!gameOver && isValidMove(currentPiece, -1, 0)) {
+                currentPiece.x--;
+            }
+        }
+
+        // Funkcja przesuwaj¹ca klocek w prawo
+        function movePieceRight() {
+            if (!gameOver && isValidMove(currentPiece, 1, 0)) {
+                currentPiece.x++;
+            }
+        }
+
+        // Funkcja obracaj¹ca klocek
+        function rotatePiece() {
+            if (!gameOver) {
+                const rotatedShape = transposeMatrix(currentPiece.shape); // Transponujemy i odwracamy macierz kszta³tu
+                const reversedRotatedShape = rotatedShape.map(row => row.reverse());
+                if (isValidMove(currentPiece, 0, 0, reversedRotatedShape)) { // Sprawdzamy czy obrót jest mo¿liwy w aktualnej pozycji
+                    currentPiece.shape = reversedRotatedShape; // Jeœli tak, to aktualizujemy kszta³t klocka
+                }
+            }
+        }
+
+        // Funkcja transponuj¹ca macierz (pomocnicza do obracania)
+        function transposeMatrix(matrix) {
+            return matrix[0].map((col, colIndex) => matrix.map(row => row[colIndex]));
+        }
+
+
+        // Funkcja "zamra¿aj¹ca" klocek na planszy - wpisuje wartoœci klocka do siatki 'grid'
+        function freezePiece() {
+            currentPiece.shape.forEach((row, yIndex) => {
+                row.forEach((blockValue, xIndex) => {
+                    if (blockValue) {
+                        grid[currentPiece.y + yIndex][currentPiece.x + xIndex] = blockValue; // Wpisujemy kolor klocka do planszy
+                    }
+                });
+            });
+            currentPiece = null; // Klocek zamro¿ony, usuwamy referencjê do aktualnego klocka
+        }
+
+        // Funkcja sprawdzaj¹ca i usuwaj¹ca pe³ne linie, aktualizuj¹ca wynik
+        function clearLines() {
+            let linesThisTurn = 0; // Licznik linii usuniêtych w tej turze
+            for (let y = gridRows - 1; y >= 0; y--) {
+                if (grid[y].every(value => value !== 0)) { // Jeœli ca³y rz¹d nie zawiera zer - linia pe³na!
+                    linesCleared++;
+                    linesThisTurn++;
+                    score += 100; // Dodajemy punkty za liniê (mo¿na modyfikowaæ punktacjê)
+                    grid.splice(y, 1); // Usuwamy pe³n¹ liniê z planszy
+                    grid.unshift(Array(gridCols).fill(0)); // Dodajemy nowy pusty rz¹d na górze
+                }
+            }
+             if (linesThisTurn > 0) { // Dodatkowe punkty za combo (wiêcej ni¿ jedna linia na raz) - opcjonalne
+                if (linesThisTurn === 2) score += 300;
+                else if (linesThisTurn === 3) score += 500;
+                else if (linesThisTurn >= 4) score += 800; // Tetris!
+            }
+            updateScoreDisplay();
+        }
+
+        // Funkcja aktualizuj¹ca wyœwietlany wynik i liczbê linii
+        function updateScoreDisplay() {
+            scoreValueElement.textContent = score;
+            linesValueElement.textContent = linesCleared;
+        }
+
+        // Funkcja resetuj¹ca grê
+        function resetGame() {
+            gameOver = false;
+            gameOverOverlay.classList.remove('show'); // Ukrywamy ekran "Koniec Gry"
+            grid = createEmptyGrid();       // Czyœcimy planszê
+            score = 0;                     // Resetujemy wynik
+            linesCleared = 0;              // Resetujemy linie
+            updateScoreDisplay();          // Aktualizujemy wyœwietlany wynik
+            nextPiece = null;              // Czyœcimy "nastêpny klocek"
+            frameCount = 0;              // **RESETUJEMY licznik klatek PRZY RESTARTCIE GRY** - WA¯NE
+            createPiece();                 // Tworzymy pierwszy klocek
+        }
+
+
+        // G³ówna pêtla gry (wykonywana co klatkê animacji)
+        function gameLoop() {
+            frameCount++; // Inkrementujemy licznik klatek
+
+            if (frameCount >= framesPerMoveDown) { // Sprawdzamy, czy licznik osi¹gn¹³ limit
+                movePieceDown();     // Przesuwamy klocek w dó³ TYLKO co 'framesPerMoveDown' klatek
+                frameCount = 0;      // Resetujemy licznik klatek
+            }
+
+            drawGame();      // Rysujemy ca³¹ grê w ka¿dej klatce (p³ynnoœæ wizualna)
+
+            if (!gameOver) { // Kontynuujemy pêtlê tylko jeœli gra nie jest skoñczona
+                requestAnimationFrame(gameLoop); // Wywo³ujemy gameLoop ponownie w nastêpnej klatce animacji
+            }
+        }
+
+
+        // Obs³uga klawiatury
+        document.addEventListener('keydown', event => {
+            if (gameOver) {
+                if (event.key === 'r' || event.key === 'R') { // Reset gry po naciœniêciu 'R' w stanie game over
+                    resetGame();
+                    gameLoop(); // Uruchamiamy pêtlê gry ponownie
+                }
+                return; // Nic innego nie robimy w stanie game over poza resetem
+            }
+
+            switch (event.key) {
+                case 'ArrowLeft':
+                    movePieceLeft();
+                    break;
+                case 'ArrowRight':
+                    movePieceRight();
+                    break;
+                case 'ArrowDown':
+                    movePieceDown(); // Mo¿na przyspieszyæ spadek klocka
+                    break;
+                case ' ': // Spacja - obrót
+                    rotatePiece();
+                    break;
+            }
+            drawGame(); // Rysujemy grê po ka¿dej akcji
+        });
+
+
+        // Inicjalizacja gry po za³adowaniu strony
+        resetGame();
+        gameLoop(); // Uruchamiamy g³ówn¹ pêtlê gry
+    </script>
+</body>
+</html>

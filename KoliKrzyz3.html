@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tic Tac Toe - Play vs Computer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f0f0f0;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    #options {
+      margin-bottom: 20px;
+    }
+    #board {
+      display: grid;
+      grid-template-columns: repeat(3, 100px);
+      grid-template-rows: repeat(3, 100px);
+      gap: 5px;
+      margin: 20px auto;
+      width: 310px;
+    }
+    .cell {
+      width: 100px;
+      height: 100px;
+      background-color: #fff;
+      border: 2px solid #333;
+      font-size: 72px;
+      line-height: 100px;
+      text-align: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    #message {
+      font-size: 24px;
+      margin: 20px;
+    }
+    #resetButton {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Tic Tac Toe - Play vs Computer</h1>
+  <div id="options">
+    <label>
+      <input type="radio" name="starter" value="human" checked> Human starts
+    </label>
+    <label>
+      <input type="radio" name="starter" value="computer"> Computer starts
+    </label>
+  </div>
+  <div id="message">Your turn (X)</div>
+  <div id="board">
+    <div class="cell" data-index="0"></div>
+    <div class="cell" data-index="1"></div>
+    <div class="cell" data-index="2"></div>
+    <div class="cell" data-index="3"></div>
+    <div class="cell" data-index="4"></div>
+    <div class="cell" data-index="5"></div>
+    <div class="cell" data-index="6"></div>
+    <div class="cell" data-index="7"></div>
+    <div class="cell" data-index="8"></div>
+  </div>
+  <button id="resetButton">Reset Game</button>
+
+  <script>
+    const boardElement = document.getElementById("board");
+    const messageElement = document.getElementById("message");
+    const resetButton = document.getElementById("resetButton");
+
+    // Board represented as an array of 9 elements (indices 0..8)
+    let board = ["", "", "", "", "", "", "", "", ""];
+    const human = "X";
+    const computer = "O";
+    let gameActive = true;
+
+    const winningCombinations = [
+      [0, 1, 2],
+      [3, 4, 5],
+      [6, 7, 8],
+      [0, 3, 6],
+      [1, 4, 7],
+      [2, 5, 8],
+      [0, 4, 8],
+      [2, 4, 6]
+    ];
+
+    function checkWin(b, player) {
+      for (const combo of winningCombinations) {
+        if (combo.every(index => b[index] === player)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function checkDraw(b) {
+      return b.every(cell => cell !== "");
+    }
+
+    function handleCellClick(event) {
+      const cell = event.target;
+      const index = parseInt(cell.getAttribute("data-index"));
+
+      if (!gameActive || board[index] !== "") return;
+
+      // Human move
+      board[index] = human;
+      cell.textContent = human;
+
+      if (checkWin(board, human)) {
+        messageElement.textContent = "You win!";
+        gameActive = false;
+        return;
+      }
+
+      if (checkDraw(board)) {
+        messageElement.textContent = "Draw!";
+        gameActive = false;
+        return;
+      }
+
+      messageElement.textContent = "Computer's turn...";
+      setTimeout(computerMove, 500);
+    }
+
+    boardElement.addEventListener("click", handleCellClick);
+
+    // Minimax algorithm for optimal move
+    function minimax(newBoard, player) {
+      const availSpots = newBoard
+        .map((val, idx) => (val === "" ? idx : null))
+        .filter(val => val !== null);
+
+      if (checkWin(newBoard, human)) {
+        return { score: -10 };
+      } else if (checkWin(newBoard, computer)) {
+        return { score: 10 };
+      } else if (availSpots.length === 0) {
+        return { score: 0 };
+      }
+
+      let moves = [];
+
+      for (let i = 0; i < availSpots.length; i++) {
+        let move = {};
+        move.index = availSpots[i];
+        newBoard[availSpots[i]] = player;
+
+        if (player === computer) {
+          let result = minimax(newBoard, human);
+          move.score = result.score;
+        } else {
+          let result = minimax(newBoard, computer);
+          move.score = result.score;
+        }
+
+        newBoard[availSpots[i]] = "";
+        moves.push(move);
+      }
+
+      let bestMove;
+      if (player === computer) {
+        let bestScore = -Infinity;
+        for (let i = 0; i < moves.length; i++) {
+          if (moves[i].score > bestScore) {
+            bestScore = moves[i].score;
+            bestMove = moves[i];
+          }
+        }
+      } else {
+        let bestScore = Infinity;
+        for (let i = 0; i < moves.length; i++) {
+          if (moves[i].score < bestScore) {
+            bestScore = moves[i].score;
+            bestMove = moves[i];
+          }
+        }
+      }
+      return bestMove;
+    }
+
+    function computerMove() {
+      if (!gameActive) return;
+
+      let bestMove = minimax(board, computer);
+      board[bestMove.index] = computer;
+      const cell = document.querySelector(`.cell[data-index="${bestMove.index}"]`);
+      cell.textContent = computer;
+
+      if (checkWin(board, computer)) {
+        messageElement.textContent = "Computer wins!";
+        gameActive = false;
+        return;
+      }
+
+      if (checkDraw(board)) {
+        messageElement.textContent = "Draw!";
+        gameActive = false;
+        return;
+      }
+
+      messageElement.textContent = "Your turn (X)";
+    }
+
+    function resetGame() {
+      board = ["", "", "", "", "", "", "", "", ""];
+      gameActive = true;
+      document.querySelectorAll(".cell").forEach(cell => cell.textContent = "");
+      
+      // Determine starter from radio button selection
+      const starter = document.querySelector('input[name="starter"]:checked').value;
+      if (starter === "human") {
+        messageElement.textContent = "Your turn (X)";
+      } else {
+        messageElement.textContent = "Computer's turn...";
+        setTimeout(computerMove, 500);
+      }
+    }
+
+    resetButton.addEventListener("click", resetGame);
+
+    // Initialize game on load
+    resetGame();
+  </script>
+</body>
+</html>
